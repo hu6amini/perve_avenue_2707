@@ -31,6 +31,12 @@ var MessengerModule = (function(Utils, EventBus) {
             return Promise.reject(new Error('forumObserver missing'));
         }
 
+        // Kick off the user fetch early so it's likely cached by the time the
+        // messenger builds. Fire-and-forget; the header path handles both cases.
+        if (currentSection === 'compose') {
+            fetchCurrentUserData();
+        }
+
         return new Promise(function(resolve, reject) {
             var wrapperReady = false;
             var targetReady = false;
@@ -151,6 +157,31 @@ var MessengerModule = (function(Utils, EventBus) {
             if (m) return m[1];
         }
         return null;
+    }
+
+    // Synchronous best-effort user snapshot from the DOM.
+    // Used to render the header immediately; API call refines it later.
+    function getCurrentUserSync() {
+        var mid = getCurrentUserId();
+        if (!mid) return null;
+
+        var username = null;
+        var avatarUrl = null;
+
+        var menu = document.querySelector('.menuwrap');
+        if (menu) {
+            var nick = menu.querySelector('.nick');
+            if (nick) username = nick.textContent.trim();
+
+            var img = menu.querySelector('.avatar img');
+            if (img && img.src) avatarUrl = img.src;
+        }
+
+        return {
+            mid: mid,
+            nickname: username || null,
+            avatar: avatarUrl || null
+        };
     }
 
     function fetchCurrentUserData() {
@@ -282,7 +313,7 @@ var MessengerModule = (function(Utils, EventBus) {
         container.className = 'modern-messenger-section';
         container.id = 'compose-section';
 
-        // Replying-as header placeholder (filled asynchronously below)
+        // Replying-as header placeholder (filled synchronously below, refined async)
         var replyingAsPlaceholder = document.createElement('div');
         replyingAsPlaceholder.className = 'modern-replying-as-placeholder';
         container.appendChild(replyingAsPlaceholder);
@@ -306,14 +337,66 @@ var MessengerModule = (function(Utils, EventBus) {
         toolbar.className = 'modern-editor-toolbar';
         container.appendChild(toolbar);
 
-        // Replying-as header — resolved asynchronously, inserted above the toolbar
+        // -----------------------------------------------------------------
+        // Replying-as header — sync-render immediately, refine async.
+        // 1) Render with whatever the DOM already gives us.
+        var syncUser = getCurrentUserSync();
+        var currentHeader = null;
+        if (syncUser) {
+            currentHeader = buildReplyingAsHeader(syncUser);
+            if (currentHeader && replyingAsPlaceholder.parentNode) {
+                replyingAsPlaceholder.parentNode.replaceChild(currentHeader, replyingAsPlaceholder);
+            }
+        }
+
+        // 2) Enrich (or render, if sync failed) when the API resolves.
         fetchCurrentUserData().then(function (user) {
-            var header = buildReplyingAsHeader(user);
-            if (header && replyingAsPlaceholder.parentNode) {
-                replyingAsPlaceholder.parentNode.replaceChild(header, replyingAsPlaceholder);
-            } else if (replyingAsPlaceholder.parentNode) {
-                // No user data — remove the empty placeholder silently
-                replyingAsPlaceholder.remove();
+            if (!user) {
+                // No API data — leave the sync header if we made one, else clean up.
+                if (!currentHeader && replyingAsPlaceholder.parentNode) {
+                    replyingAsPlaceholder.remove();
+                }
+                return;
+            }
+
+            if (!currentHeader) {
+                // Sync failed (no menu, no body class) — build now.
+                var header = buildReplyingAsHeader(user);
+                if (header && replyingAsPlaceholder.parentNode) {
+                    replyingAsPlaceholder.parentNode.replaceChild(header, replyingAsPlaceholder);
+                } else if (replyingAsPlaceholder.parentNode) {
+                    replyingAsPlaceholder.remove();
+                }
+                return;
+            }
+
+            // Sync header exists — update it in place, no flicker.
+            var nameEl = currentHeader.querySelector('.modern-replying-name');
+            if (nameEl && user.nickname && nameEl.textContent !== user.nickname) {
+                nameEl.textContent = user.nickname;
+            }
+
+            var linkEl = currentHeader.querySelector('.modern-replying-user');
+            if (linkEl && user.mid) linkEl.href = '/?act=Profile&MID=' + user.mid;
+
+            if (user.avatar) {
+                var newUrl = optimizeAvatarUrl(user.avatar, 36, 36);
+                if (newUrl) {
+                    var avatarEl = currentHeader.querySelector('.modern-replying-avatar');
+                    if (avatarEl && avatarEl.tagName === 'IMG') {
+                        if (avatarEl.src !== newUrl) avatarEl.src = newUrl;
+                    } else if (avatarEl && avatarEl.classList.contains('modern-replying-avatar--initial')) {
+                        var img = document.createElement('img');
+                        img.className = 'modern-replying-avatar';
+                        img.src = newUrl;
+                        img.alt = 'Avatar of ' + (user.nickname || 'You');
+                        img.width = 36;
+                        img.height = 36;
+                        img.loading = 'lazy';
+                        img.decoding = 'async';
+                        avatarEl.parentNode.replaceChild(img, avatarEl);
+                    }
+                }
             }
         });
 
