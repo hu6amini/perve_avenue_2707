@@ -1365,19 +1365,14 @@
 
 /* ------------------------------------------------------------
    10b. SEMANTIC TEXT COLORS
-   Used by both legacy post rendering and the TipTap editor.
-   Every variant maps to a CSS variable so it adapts to theme.
+   Each variant maps to a CSS variable that adapts to theme.
    ------------------------------------------------------------ */
 .text-primary { color: var(--primary-light); }
-.text-success { color: var(--success-color); }
+.text-info    { color: var(--accent-color); }
+.text-accent  { color: var(--secondary-color); }
 .text-warning { color: var(--warning-color); }
 .text-danger  { color: var(--danger-color); }
 .text-muted   { color: var(--text-tertiary); }
-
-/* Optional subtle highlight variants (used by future dropdown) */
-.text-highlight-primary { background: rgba(5, 150, 105, 0.15); color: var(--primary-light); padding: 0.05em 0.35em; border-radius: 4px; }
-.text-highlight-warning { background: rgba(245, 158, 11, 0.15); color: var(--warning-color); padding: 0.05em 0.35em; border-radius: 4px; }
-.text-highlight-danger  { background: rgba(220, 38, 38, 0.15); color: var(--danger-color); padding: 0.05em 0.35em; border-radius: 4px; }
 
 /* Color swatch indicators inside the dropdown menu */
 .modern-dropdown-item .color-swatch {
@@ -1390,12 +1385,13 @@
     border: 1px solid var(--border-color);
 }
 .modern-dropdown-item .color-swatch--primary { background: var(--primary-light); }
-.modern-dropdown-item .color-swatch--success { background: var(--success-color); }
+.modern-dropdown-item .color-swatch--info    { background: var(--accent-color); }
+.modern-dropdown-item .color-swatch--accent  { background: var(--secondary-color); }
 .modern-dropdown-item .color-swatch--warning { background: var(--warning-color); }
 .modern-dropdown-item .color-swatch--danger  { background: var(--danger-color); }
 .modern-dropdown-item .color-swatch--muted   { background: var(--text-tertiary); }
 
-/* Active color indicator on the toolbar button */
+/* Active color indicator dot on the palette toolbar button */
 .modern-editor-btn .active-color-indicator {
     display: inline-block;
     width: 12px;
@@ -1403,6 +1399,7 @@
     border-radius: 50%;
     border: 1px solid rgba(0, 0, 0, 0.2);
     vertical-align: middle;
+    margin-left: 4px;
 }
 
 /* ------------------------------------------------------------
