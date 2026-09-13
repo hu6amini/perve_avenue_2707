@@ -261,16 +261,18 @@ var MessengerModule = (function(Utils, EventBus) {
     // ------------------------------------------------------------------------
     var LEGACY_COLOR_MAP = {
         // Named colors
-        red: 'danger', darkred: 'danger', crimson: 'danger',
-        green: 'success', darkgreen: 'success', limegreen: 'success',
-        blue: 'primary', darkblue: 'primary', navy: 'primary', dodgerblue: 'primary',
+        green: 'primary', darkgreen: 'primary', limegreen: 'primary',
+        blue: 'info', darkblue: 'info', navy: 'info', dodgerblue: 'info', cyan: 'info', teal: 'info',
+        purple: 'accent', violet: 'accent', magenta: 'accent', fuchsia: 'accent',
         orange: 'warning', gold: 'warning', yellow: 'warning', darkorange: 'warning',
+        red: 'danger', darkred: 'danger', crimson: 'danger',
         gray: 'muted', grey: 'muted', silver: 'muted',
         // Hex (lowercased)
-        '#ff0000': 'danger', '#dc2626': 'danger', '#b91c1c': 'danger',
-        '#008000': 'success', '#10b981': 'success', '#059669': 'success',
-        '#0000ff': 'primary', '#3b82f6': 'primary', '#0ea5e9': 'primary',
+        '#008000': 'primary', '#10b981': 'primary', '#059669': 'primary',
+        '#0000ff': 'info', '#3b82f6': 'info', '#0ea5e9': 'info', '#0369a1': 'info',
+        '#800080': 'accent', '#7c3aed': 'accent', '#6d28d9': 'accent',
         '#ffa500': 'warning', '#f59e0b': 'warning', '#d97706': 'warning',
+        '#ff0000': 'danger', '#dc2626': 'danger', '#b91c1c': 'danger',
         '#808080': 'muted', '#6b7280': 'muted'
     };
 
@@ -568,7 +570,8 @@ var MessengerModule = (function(Utils, EventBus) {
         colorDropdownMenu.style.cssText = 'position:absolute;top:100%;left:0;background:var(--surface-color);border:1px solid var(--border-color);border-radius:var(--radius-sm);z-index:1000;min-width:180px;display:none;';
         colorDropdownMenu.innerHTML = ''
             + '<button class="modern-dropdown-item" data-color="primary"><span class="color-swatch color-swatch--primary"></span> Primary</button>'
-            + '<button class="modern-dropdown-item" data-color="success"><span class="color-swatch color-swatch--success"></span> Success</button>'
+            + '<button class="modern-dropdown-item" data-color="info"><span class="color-swatch color-swatch--info"></span> Info</button>'
+            + '<button class="modern-dropdown-item" data-color="accent"><span class="color-swatch color-swatch--accent"></span> Accent</button>'
             + '<button class="modern-dropdown-item" data-color="warning"><span class="color-swatch color-swatch--warning"></span> Warning</button>'
             + '<button class="modern-dropdown-item" data-color="danger"><span class="color-swatch color-swatch--danger"></span> Danger</button>'
             + '<button class="modern-dropdown-item" data-color="muted"><span class="color-swatch color-swatch--muted"></span> Muted</button>'
@@ -1059,6 +1062,8 @@ var MessengerModule = (function(Utils, EventBus) {
                             tag: 'span[data-color]',
                             getAttrs: function(el) {
                                 var v = el.getAttribute('data-color');
+                                // Backward-compat alias for pre-launch 'success' variant
+                                if (v === 'success') v = 'primary';
                                 if (v && LEGACY_COLOR_MAP[v]) v = LEGACY_COLOR_MAP[v];
                                 return v ? { variant: v } : false;
                             }
@@ -1268,7 +1273,7 @@ var MessengerModule = (function(Utils, EventBus) {
 
                     // Color dropdown active state + live swatch
                     var activeColorVariant = null;
-                    var colorVariants = ['primary', 'success', 'warning', 'danger', 'muted'];
+                    var colorVariants = ['primary', 'info', 'accent', 'warning', 'danger', 'muted'];
                     for (var ci = 0; ci < colorVariants.length; ci++) {
                         if (editor.isActive('semanticColor', { variant: colorVariants[ci] })) {
                             activeColorVariant = colorVariants[ci];
@@ -1291,11 +1296,16 @@ var MessengerModule = (function(Utils, EventBus) {
                             swatch.className = 'active-color-indicator';
                             colorDropdownBtn.appendChild(swatch);
                         }
-                        // Apply the actual color to the indicator dot
-                        swatch.style.background = 'var(--' +
-                            (activeColorVariant === 'primary' ? 'primary-light'
-                             : activeColorVariant === 'muted' ? 'text-tertiary'
-                             : activeColorVariant + '-color') + ')';
+                        // Map variant → the CSS variable that represents it
+                        var varMap = {
+                            primary: 'primary-light',
+                            info: 'accent-color',
+                            accent: 'secondary-color',
+                            warning: 'warning-color',
+                            danger: 'danger-color',
+                            muted: 'text-tertiary'
+                        };
+                        swatch.style.background = 'var(--' + (varMap[activeColorVariant] || 'primary-light') + ')';
                     } else {
                         colorDropdownBtn.classList.remove('active');
                         if (swatch) swatch.remove();
