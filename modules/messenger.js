@@ -1,5 +1,5 @@
 // Messenger Module – TipTap based, modern preview, relies solely on forumObserver
-// Includes custom emoji picker with Twemoji images (grouped)
+// Includes custom emoji picker with Twemoji images (grouped) and semantic color palette
 var MessengerModule = (function(Utils, EventBus) {
     'use strict';
 
@@ -31,8 +31,6 @@ var MessengerModule = (function(Utils, EventBus) {
             return Promise.reject(new Error('forumObserver missing'));
         }
 
-        // Kick off the user fetch early so it's likely cached by the time the
-        // messenger builds. Fire-and-forget; the header path handles both cases.
         if (currentSection === 'compose') {
             fetchCurrentUserData();
         }
@@ -146,11 +144,9 @@ var MessengerModule = (function(Utils, EventBus) {
     var _currentUserCache = null;
 
     function getCurrentUserId() {
-        // Primary: body class "a<MID>" (server-rendered, reliable on every device)
         var match = document.body.className.match(/\ba(\d{5,})\b/);
         if (match) return match[1];
 
-        // Fallback: menuwrap (in case body class is ever unavailable)
         var menuLink = document.querySelector('.menuwrap a[href*="MID="]');
         if (menuLink) {
             var m = menuLink.getAttribute('href').match(/MID=(\d+)/);
@@ -159,8 +155,6 @@ var MessengerModule = (function(Utils, EventBus) {
         return null;
     }
 
-    // Synchronous best-effort user snapshot from the DOM.
-    // Used to render the header immediately; API call refines it later.
     function getCurrentUserSync() {
         var mid = getCurrentUserId();
         if (!mid) return null;
@@ -261,6 +255,38 @@ var MessengerModule = (function(Utils, EventBus) {
     }
 
     // ------------------------------------------------------------------------
+    // SEMANTIC COLOR PALETTE
+    // Maps legacy [color=X] values to semantic classes. Unknown colors are
+    // stripped (safer than carrying an unreadable inline style forward).
+    // ------------------------------------------------------------------------
+    var LEGACY_COLOR_MAP = {
+        // Named colors
+        red: 'danger', darkred: 'danger', crimson: 'danger',
+        green: 'success', darkgreen: 'success', limegreen: 'success',
+        blue: 'primary', darkblue: 'primary', navy: 'primary', dodgerblue: 'primary',
+        orange: 'warning', gold: 'warning', yellow: 'warning', darkorange: 'warning',
+        gray: 'muted', grey: 'muted', silver: 'muted',
+        // Hex (lowercased)
+        '#ff0000': 'danger', '#dc2626': 'danger', '#b91c1c': 'danger',
+        '#008000': 'success', '#10b981': 'success', '#059669': 'success',
+        '#0000ff': 'primary', '#3b82f6': 'primary', '#0ea5e9': 'primary',
+        '#ffa500': 'warning', '#f59e0b': 'warning', '#d97706': 'warning',
+        '#808080': 'muted', '#6b7280': 'muted'
+    };
+
+    function normalizeLegacyColor(raw) {
+        if (!raw) return null;
+        var key = String(raw).trim().toLowerCase();
+
+        // Expand #abc → #aabbcc shorthand
+        if (/^#[0-9a-f]{3}$/i.test(key)) {
+            key = '#' + key[1] + key[1] + key[2] + key[2] + key[3] + key[3];
+        }
+
+        return LEGACY_COLOR_MAP[key] || null;
+    }
+
+    // ------------------------------------------------------------------------
     // CONVERTERS (Legacy BBCode ↔ HTML) – keep for loading existing messages
     // ------------------------------------------------------------------------
     function legacyToHtml(legacy) {
@@ -279,9 +305,26 @@ var MessengerModule = (function(Utils, EventBus) {
         html = html.replace(/\[code\](.*?)\[\/code\]/gis, '<pre><code>$1</code></pre>');
         html = html.replace(/\[spoiler\](.*?)\[\/spoiler\]/gis, '<div class="spoiler">$1</div>');
         html = html.replace(/\[CENTER\](.*?)\[\/CENTER\]/gis, '<div style="text-align:center">$1</div>');
-        html = html.replace(/\[font=([^\]]+)\](.*?)\[\/font\]/gi, '<span style="font-family:$1">$2</span>');
-        html = html.replace(/\[size=([^\]]+)\](.*?)\[\/size\]/gi, '<span style="font-size:$1px">$2</span>');
-        html = html.replace(/\[color=([^\]]+)\](.*?)\[\/color\]/gi, '<span style="color:$1">$2</span>');
+
+        // Font: strip entirely (legacy font families are inconsistent and don't theme well)
+        html = html.replace(/\[font=([^\]]+)\](.*?)\[\/font\]/gis, '$2');
+
+        // Size: clamp to a safe range (10–30px)
+        html = html.replace(/\[size=([^\]]+)\](.*?)\[\/size\]/gis, function(_, sz, content) {
+            var n = parseInt(sz, 10);
+            if (isNaN(n)) n = 14;
+            n = Math.max(10, Math.min(30, n));
+            return '<span style="font-size:' + n + 'px">' + content + '</span>';
+        });
+
+        // Color: map to semantic classes, strip unknowns
+        html = html.replace(/\[color=([^\]]+)\](.*?)\[\/color\]/gis, function(_, color, content) {
+            var variant = normalizeLegacyColor(color);
+            return variant
+                ? '<span data-color="' + variant + '" class="text-' + variant + '">' + content + '</span>'
+                : content;
+        });
+
         html = html.replace(/\[EMAIL\](.*?)\[\/EMAIL\]/gi, '<a href="mailto:$1">$1</a>');
         return html;
     }
@@ -289,7 +332,8 @@ var MessengerModule = (function(Utils, EventBus) {
     // No htmlToLegacy – we keep HTML in the textarea
 
     // ------------------------------------------------------------------------
-    // COMPOSE SECTION – TipTap with custom image, link preview, heading dropdown, emoji picker
+    // COMPOSE SECTION – TipTap with custom image, link preview, heading dropdown,
+    // emoji picker, and semantic color palette
     // ------------------------------------------------------------------------
     function buildComposeSection() {
         var recipientInput   = document.querySelector('input[name="entered_name"]');
@@ -297,7 +341,6 @@ var MessengerModule = (function(Utils, EventBus) {
         var titleInput       = document.querySelector('input[name="msg_title"]');
         var originalTextarea = document.getElementById('Post');
         
-        // Guard: if the compose textarea is missing, do not build the editor
         if (!originalTextarea) {
             console.warn('[MessengerModule] Compose textarea (#Post) not found – skipping editor');
             return document.createElement('div');
@@ -313,7 +356,7 @@ var MessengerModule = (function(Utils, EventBus) {
         container.className = 'modern-messenger-section';
         container.id = 'compose-section';
 
-        // Replying-as header placeholder (filled synchronously below, refined async)
+        // Replying-as header placeholder (filled sync, refined async)
         var replyingAsPlaceholder = document.createElement('div');
         replyingAsPlaceholder.className = 'modern-replying-as-placeholder';
         container.appendChild(replyingAsPlaceholder);
@@ -339,7 +382,7 @@ var MessengerModule = (function(Utils, EventBus) {
 
         // -----------------------------------------------------------------
         // Replying-as header — sync-render immediately, refine async.
-        // 1) Render with whatever the DOM already gives us.
+        // -----------------------------------------------------------------
         var syncUser = getCurrentUserSync();
         var currentHeader = null;
         if (syncUser) {
@@ -349,10 +392,8 @@ var MessengerModule = (function(Utils, EventBus) {
             }
         }
 
-        // 2) Enrich (or render, if sync failed) when the API resolves.
         fetchCurrentUserData().then(function (user) {
             if (!user) {
-                // No API data — leave the sync header if we made one, else clean up.
                 if (!currentHeader && replyingAsPlaceholder.parentNode) {
                     replyingAsPlaceholder.remove();
                 }
@@ -360,7 +401,6 @@ var MessengerModule = (function(Utils, EventBus) {
             }
 
             if (!currentHeader) {
-                // Sync failed (no menu, no body class) — build now.
                 var header = buildReplyingAsHeader(user);
                 if (header && replyingAsPlaceholder.parentNode) {
                     replyingAsPlaceholder.parentNode.replaceChild(header, replyingAsPlaceholder);
@@ -370,7 +410,6 @@ var MessengerModule = (function(Utils, EventBus) {
                 return;
             }
 
-            // Sync header exists — update it in place, no flicker.
             var nameEl = currentHeader.querySelector('.modern-replying-name');
             if (nameEl && user.nickname && nameEl.textContent !== user.nickname) {
                 nameEl.textContent = user.nickname;
@@ -514,6 +553,50 @@ var MessengerModule = (function(Utils, EventBus) {
         codeBtn.title = 'Code block';
         toolbar.appendChild(codeBtn);
         activeButtonElements.push(codeBtn);
+
+        // ========== COLOR DROPDOWN ==========
+        var colorDropdownContainer = document.createElement('div');
+        colorDropdownContainer.className = 'modern-dropdown';
+        colorDropdownContainer.style.cssText = 'position:relative;display:inline-block';
+        var colorDropdownBtn = document.createElement('button');
+        colorDropdownBtn.type = 'button';
+        colorDropdownBtn.className = 'modern-editor-btn';
+        colorDropdownBtn.innerHTML = '<i class="fa-regular fa-palette"></i> <i class="fa-regular fa-chevron-down" style="font-size:0.7rem;"></i>';
+        colorDropdownBtn.title = 'Text color';
+        var colorDropdownMenu = document.createElement('div');
+        colorDropdownMenu.className = 'modern-dropdown-menu';
+        colorDropdownMenu.style.cssText = 'position:absolute;top:100%;left:0;background:var(--surface-color);border:1px solid var(--border-color);border-radius:var(--radius-sm);z-index:1000;min-width:180px;display:none;';
+        colorDropdownMenu.innerHTML = ''
+            + '<button class="modern-dropdown-item" data-color="primary"><span class="color-swatch color-swatch--primary"></span> Primary</button>'
+            + '<button class="modern-dropdown-item" data-color="success"><span class="color-swatch color-swatch--success"></span> Success</button>'
+            + '<button class="modern-dropdown-item" data-color="warning"><span class="color-swatch color-swatch--warning"></span> Warning</button>'
+            + '<button class="modern-dropdown-item" data-color="danger"><span class="color-swatch color-swatch--danger"></span> Danger</button>'
+            + '<button class="modern-dropdown-item" data-color="muted"><span class="color-swatch color-swatch--muted"></span> Muted</button>'
+            + '<button class="modern-dropdown-item" data-color="remove"><i class="fa-regular fa-eraser" aria-hidden="true"></i> Remove color</button>';
+        colorDropdownContainer.appendChild(colorDropdownBtn);
+        colorDropdownContainer.appendChild(colorDropdownMenu);
+        toolbar.appendChild(colorDropdownContainer);
+        colorDropdownBtn.onclick = function(e) {
+            e.stopPropagation();
+            colorDropdownMenu.style.display = colorDropdownMenu.style.display === 'block' ? 'none' : 'block';
+        };
+        document.addEventListener('click', function() { colorDropdownMenu.style.display = 'none'; });
+        colorDropdownMenu.addEventListener('click', function(e) { e.stopPropagation(); });
+
+        colorDropdownMenu.querySelectorAll('[data-color]').forEach(function(btn) {
+            btn.onclick = function() {
+                if (!editor) return;
+                var variant = btn.getAttribute('data-color');
+                if (variant === 'remove') {
+                    editor.chain().focus().unsetMark('semanticColor').run();
+                } else {
+                    editor.chain().focus().setMark('semanticColor', { variant: variant }).run();
+                }
+                colorDropdownMenu.style.display = 'none';
+            };
+        });
+        // ========== END COLOR DROPDOWN ==========
+
         addSeparator();
 
         var linkBtn = document.createElement('button');
@@ -571,27 +654,22 @@ var MessengerModule = (function(Utils, EventBus) {
         emojiPickerPanel.className = 'modern-emoji-picker';
         emojiPickerPanel.style.cssText = 'position:absolute;bottom:100%;left:0;background:var(--surface-color);border:1px solid var(--border-color);border-radius:var(--radius);padding:var(--space-sm);z-index:1000;display:none;grid-template-columns:repeat(8,1fr);gap:var(--space-xs);width:320px;max-height:200px;overflow-y:auto;';
 
-        // Helper: convert emoji to its hex code point(s) for Twemoji URL
         function emojiToCodePoint(emoji) {
             var codePoints = Array.from(emoji).map(function(ch) {
                 return ch.codePointAt(0).toString(16);
             });
-            // Filter out variation selector (FE0F) which Twemoji does not need
             codePoints = codePoints.filter(function(cp) {
                 return cp !== 'fe0f';
             });
             return codePoints.join('-');
         }
 
-        // Define emoji groups with names and emoji lists
         var emojiGroups = [
             { name: 'Emojis', emojis: [
-                // Smileys & emotions (core)
                 '😀','😃','😄','😁','😆','😅','🤣','😂','🙂','😉','😊','😇','🥰','😍','🤩','😘','🥲','😏','😋','😛','😜','🤪','😝','🤗','🤭','🤫','🤔','🤤','🥳','😎','🤓','🧐','🙃','🤐','🤨','😒','🙄','😬','😌','😔','😪','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','😵','🤯','😕','😟','🙁','😮','😲','😳','🥺','😨','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','😤','😡','😠','🤬','😈','👿','💀','💩','🤡','👋','👌','👍','👎','✊','👏','🙏','💪','👀','🤦','🤷','🎉','❤️','💔','🔥','💯','💥'
             ] }
         ];
 
-        // Build the picker panel
         emojiGroups.forEach(function(group, groupIndex) {
             if (groupIndex > 0) {
                 var separator = document.createElement('div');
@@ -782,9 +860,10 @@ var MessengerModule = (function(Utils, EventBus) {
                 const core = await import('https://esm.sh/@tiptap/core@2.5.2');
                 const Editor = core.Editor || (core.default && core.default.Editor);
                 const Node = core.Node || (core.default && core.default.Node);
+                const Mark = core.Mark || (core.default && core.default.Mark);
                 
-                if (!Editor || !Node) {
-                    throw new Error('Editor or Node not found in @tiptap/core');
+                if (!Editor || !Node || !Mark) {
+                    throw new Error('Editor, Node, or Mark not found in @tiptap/core');
                 }
 
                 const { Plugin, PluginKey } = await import('https://esm.sh/prosemirror-state@1.4.3');
@@ -963,6 +1042,37 @@ var MessengerModule = (function(Utils, EventBus) {
                     renderHTML: () => ['div', { class: 'spoiler' }, 0],
                 });
 
+                // -------------------------------------------------------------
+                // SEMANTIC COLOR MARK
+                // Stores variant as `data-color` attribute and renders semantic
+                // CSS class. No inline styles — the palette adapts to theme.
+                // -------------------------------------------------------------
+                const SemanticColor = Mark.create({
+                    name: 'semanticColor',
+                    addAttributes() {
+                        return {
+                            variant: { default: 'primary' }
+                        };
+                    },
+                    parseHTML() {
+                        return [{
+                            tag: 'span[data-color]',
+                            getAttrs: function(el) {
+                                var v = el.getAttribute('data-color');
+                                if (v && LEGACY_COLOR_MAP[v]) v = LEGACY_COLOR_MAP[v];
+                                return v ? { variant: v } : false;
+                            }
+                        }];
+                    },
+                    renderHTML({ HTMLAttributes }) {
+                        var variant = HTMLAttributes.variant || 'primary';
+                        return ['span', {
+                            class: 'text-' + variant,
+                            'data-color': variant
+                        }, 0];
+                    }
+                });
+
                 const linkPreviewPlugin = new Plugin({
                     key: new PluginKey('linkPreview'),
                     props: {
@@ -1017,6 +1127,7 @@ var MessengerModule = (function(Utils, EventBus) {
                         CustomLink,
                         Spoiler,
                         LinkPreview,
+                        SemanticColor,
                     ],
                     content: initialHtml,
                     editorProps: {
@@ -1153,6 +1264,41 @@ var MessengerModule = (function(Utils, EventBus) {
                     } else {
                         headingDropdownBtn.style.backgroundColor = '';
                         headingDropdownBtn.style.color = '';
+                    }
+
+                    // Color dropdown active state + live swatch
+                    var activeColorVariant = null;
+                    var colorVariants = ['primary', 'success', 'warning', 'danger', 'muted'];
+                    for (var ci = 0; ci < colorVariants.length; ci++) {
+                        if (editor.isActive('semanticColor', { variant: colorVariants[ci] })) {
+                            activeColorVariant = colorVariants[ci];
+                            break;
+                        }
+                    }
+
+                    // Highlight the matching item in the dropdown menu
+                    colorDropdownMenu.querySelectorAll('[data-color]').forEach(function(item) {
+                        var v = item.getAttribute('data-color');
+                        item.classList.toggle('active', v === activeColorVariant);
+                    });
+
+                    // Show a live swatch on the palette button when a color is active
+                    var swatch = colorDropdownBtn.querySelector('.active-color-indicator');
+                    if (activeColorVariant) {
+                        colorDropdownBtn.classList.add('active');
+                        if (!swatch) {
+                            swatch = document.createElement('span');
+                            swatch.className = 'active-color-indicator';
+                            colorDropdownBtn.appendChild(swatch);
+                        }
+                        // Apply the actual color to the indicator dot
+                        swatch.style.background = 'var(--' +
+                            (activeColorVariant === 'primary' ? 'primary-light'
+                             : activeColorVariant === 'muted' ? 'text-tertiary'
+                             : activeColorVariant + '-color') + ')';
+                    } else {
+                        colorDropdownBtn.classList.remove('active');
+                        if (swatch) swatch.remove();
                     }
                 }
                 editor.on('selectionUpdate', updateActiveStates);
@@ -1507,7 +1653,6 @@ var MessengerModule = (function(Utils, EventBus) {
         if (!wrapper) return;
         if (document.getElementById('modern-messenger')) return;
 
-        // If a legacy .post element exists on the page, do not build the messenger
         if (document.querySelector('.post')) {
             console.warn('[MessengerModule] Legacy .post element found – skipping messenger');
             return;
@@ -1546,7 +1691,6 @@ var MessengerModule = (function(Utils, EventBus) {
         messengerContainer.appendChild(navContainer);
         messengerContainer.appendChild(mainContent);
 
-        // Insert after breadcrumb if it exists, otherwise after carousel
         if (breadcrumb) {
             breadcrumb.insertAdjacentElement('afterend', messengerContainer);
         } else if (carousel) {
